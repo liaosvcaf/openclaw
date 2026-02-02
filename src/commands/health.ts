@@ -45,11 +45,11 @@ export type AgentHealthSummary = {
 
 export type HealthSummary = {
   /**
-   * Convenience top-level flag for UIs (e.g. WebChat) that only need a binary
-   * "can talk to the gateway" signal. If this payload exists, the gateway RPC
-   * succeeded, so this is always `true`.
+   * Top-level health flag. `true` when the gateway is reachable and all
+   * configured channel probes succeed. `false` when any channel probe fails
+   * (e.g. Telegram webhook delivery errors).
    */
-  ok: true;
+  ok: boolean;
   ts: number;
   durationMs: number;
   channels: Record<string, ChannelHealthSummary>;
