@@ -93,6 +93,13 @@ export async function executeJob(
     job.state.lastDurationMs = Math.max(0, endedAt - startedAt);
     job.state.lastError = err;
 
+    if (status === "error") {
+      job.state.consecutiveFailures = (job.state.consecutiveFailures ?? 0) + 1;
+    } else if (status === "ok") {
+      job.state.consecutiveFailures = 0;
+      job.state.lastFailureNotificationAtMs = undefined;
+    }
+
     const shouldDelete =
       job.schedule.kind === "at" && status === "ok" && job.deleteAfterRun === true;
 
@@ -123,6 +130,21 @@ export async function executeJob(
       state.store.jobs = state.store.jobs.filter((j) => j.id !== job.id);
       deleted = true;
       emit(state, { jobId: job.id, action: "removed" });
+    }
+
+    if (status === "error") {
+      const threshold = 3;
+      const throttleMs = 60 * 60_000;
+      const failures = job.state.consecutiveFailures ?? 0;
+      const lastNotified = job.state.lastFailureNotificationAtMs ?? 0;
+      if (failures >= threshold && endedAt - lastNotified > throttleMs) {
+        job.state.lastFailureNotificationAtMs = endedAt;
+        const msg = `Cron job "${job.name}" failed ${failures} times in a row. Last error: ${err}`;
+        state.deps.enqueueSystemEvent(`Alert: ${msg}`, {
+          agentId: job.agentId,
+        });
+        state.deps.requestHeartbeatNow({ reason: `cron:${job.id}:alert` });
+      }
     }
 
     if (job.sessionTarget === "isolated") {

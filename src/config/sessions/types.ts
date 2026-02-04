@@ -30,6 +30,10 @@ export type SessionEntry = {
   lastHeartbeatText?: string;
   /** Timestamp (ms) when lastHeartbeatText was delivered. */
   lastHeartbeatSentAt?: number;
+  /** Consecutive failures for heartbeat runs. */
+  consecutiveFailures?: number;
+  /** Timestamp (ms) when the last failure notification was sent. */
+  lastFailureNotificationAtMs?: number;
   sessionId: string;
   updatedAt: number;
   sessionFile?: string;

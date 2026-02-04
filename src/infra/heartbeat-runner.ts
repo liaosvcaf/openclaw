@@ -595,6 +595,16 @@ export async function runHeartbeatOnce(opts: {
 
   try {
     const replyResult = await getReplyFromConfig(ctx, { isHeartbeat: true }, cfg);
+    // Success: clear consecutive failure counter if it was non-zero
+    if (entry?.consecutiveFailures) {
+      await updateSessionStore(storePath, (s) => {
+        const e = s[sessionKey];
+        if (e) {
+          e.consecutiveFailures = 0;
+          e.lastFailureNotificationAtMs = undefined;
+        }
+      });
+    }
     const replyPayload = resolveHeartbeatReplyPayload(replyResult);
     const includeReasoning = heartbeat?.includeReasoning === true;
     const reasoningPayloads = includeReasoning
@@ -800,6 +810,45 @@ export async function runHeartbeatOnce(opts: {
       indicatorType: visibility.useIndicator ? resolveIndicatorType("failed") : undefined,
     });
     log.error(`heartbeat failed: ${reason}`, { error: reason });
+
+    // Track consecutive failures and notify user if threshold exceeded
+    const store = loadSessionStore(storePath);
+    const current = store[sessionKey];
+    if (current) {
+      const threshold = 3;
+      const throttleMs = 60 * 60_000;
+      const failures = (current.consecutiveFailures ?? 0) + 1;
+      const now = Date.now();
+      const lastNotified = current.lastFailureNotificationAtMs ?? 0;
+
+      await updateSessionStore(storePath, (s) => {
+        const e = s[sessionKey];
+        if (e) {
+          e.consecutiveFailures = failures;
+        }
+      });
+
+      if (failures >= threshold && now - lastNotified > throttleMs) {
+        await updateSessionStore(storePath, (s) => {
+          const e = s[sessionKey];
+          if (e) {
+            e.lastFailureNotificationAtMs = now;
+          }
+        });
+        if (delivery.channel !== "none" && delivery.to) {
+          const msg = `Heartbeat run failed ${failures} times in a row. Last error: ${reason}`;
+          await deliverOutboundPayloads({
+            cfg,
+            channel: delivery.channel,
+            to: delivery.to,
+            accountId: delivery.accountId,
+            payloads: [{ text: `Alert: ${msg}` }],
+            deps: opts.deps,
+          });
+        }
+      }
+    }
+
     return { status: "failed", reason };
   }
 }
